@@ -41,7 +41,7 @@ local scanlist = {}
 
 local tree_width = 30
 local line_length_factor = 0.3
-
+local soft_wrap = false
 
 -- Get a new object used when adding to scanlist
 local function new_listobj(p, d, o, i)
@@ -99,6 +99,16 @@ local function try_convert_rel(path)
     end
     
     return path
+end
+
+-- Try to convert into Home relative path
+local function convert_home_rel(path)
+	local home_path = os.Getenv("HOME")
+	if home_path and string.sub(path, 1, home_path:len()) == home_path then
+		return "~" .. string.sub(path, home_path:len() + 1)
+	end
+
+	return path
 end
 
 -- Returns a list of files (in the target dir) that are ignored by the VCS system (if exists)
@@ -303,7 +313,8 @@ local function refresh_view()
 
     -- Insert the top 3 things that are always there
     -- Current dir
-    tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 0), current_dir .. '\n')
+    -- NOTE: need to reduce the path size somehow
+    tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 0), convert_home_rel(current_dir) .. '\n')
     -- An ASCII separator
     tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 1), repeat_str('─', tree_view:GetView().Width) .. '\n')
     -- The ".." and use a newline if there are things in the current dir
@@ -312,6 +323,8 @@ local function refresh_view()
     -- Holds the current basename of the path (purely for display)
     local display_content
     local highest_length = 0
+
+    local displayable_content
 
     -- NOTE: might want to not do all these concats in the loop, it can get slow
     for i = 1, #scanlist do
@@ -331,6 +344,12 @@ local function refresh_view()
             display_content = repeat_str(' ', 2 * scanlist[i].indent) .. display_content
         end
 
+        -- NOTE: if neither options are true, just sub and replace the subbed strings by ...
+        if not auto_resize and not soft_wrap and display_content:len() > tree_view:GetView().Width then
+			displayable_content = string.sub(display_content, 1, tree_view:GetView().Width - 3)
+			display_content = displayable_content .. "..."
+		end
+
         -- Newlines are needed for all inserts except the last
         -- If you insert a newline on the last, it leaves a blank spot at the bottom
         if i < #scanlist then
@@ -340,14 +359,16 @@ local function refresh_view()
         if display_content:len() > highest_length then
             highest_length = display_content:len()
         end
-
+			
         -- Insert line-by-line to avoid out-of-bounds on big folders
         -- +2 so we skip the 0/1/2 positions that hold the top dir/separator/..
         tree_view.Buf.EventHandler:Insert(buffer.Loc(0, i + 2), display_content)
     end
 
     -- Update pane width
-    tree_view:ResizePane(tree_width + highest_length * line_length_factor)
+    if auto_resize == true then
+    	tree_view:ResizePane(tree_width + highest_length * line_length_factor)
+    end
 
     -- Resizes all views after messing with ours
     tree_view:Tab():Resize()
@@ -994,7 +1015,7 @@ local function open_tree()
     -- Set the various display settings, but only on our view (by using SetLocalOption instead of SetOption)
     -- NOTE: Micro requires the true/false to be a string
     -- Softwrap long strings (the file/dir paths)
-    tree_view.Buf:SetOptionNative('softwrap', true)
+    tree_view.Buf:SetOptionNative('softwrap', soft_wrap)
     -- No line numbering
     tree_view.Buf:SetOptionNative('ruler', false)
     -- Is this needed with new non-savable settings from being "vtLog"?
@@ -1554,6 +1575,10 @@ function init()
     -- Default tree width
     config.RegisterCommonOption('filemanager2', 'treewidth', 30)
     config.RegisterCommonOption('filemanager2', 'lengthfactor', 0.3)
+	-- TODO: New option because I'M EASILY DISTRACTED by the size changes
+	-- On PR/Push/Whatever the mainstream will be, make these default `true`
+    config.RegisterCommonOption('filemanager2', 'autoresize', false)
+    config.RegisterCommonOption('filemanager2', 'softwrap', false)
     
     -- Use file icon in status bar
     micro.SetStatusInfoFn('filemanager2.FileIcon')
@@ -1575,6 +1600,9 @@ function init()
     tree_width = config.GetGlobalOption('filemanager2.treewidth')
     line_length_factor = config.GetGlobalOption('filemanager2.lengthfactor')
 
+	auto_resize = config.GetGlobalOption('filemanager2.autoresize')
+	soft_wrap = config.GetGlobalOption('filemanager2.softwrap')
+	
     -- NOTE: This must be below the syntax load command or coloring won't work
     -- Just auto-open if the option is enabled
     -- This will run when the plugin first loads
