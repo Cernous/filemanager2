@@ -15,7 +15,7 @@ function Icons()
 end
 
 function GetIcon(filename)
-    return icon.GetIcon(filename)
+	return icon.GetIcon(filename)
 end
 
 function FileIcon(buf)
@@ -42,6 +42,7 @@ local scanlist = {}
 local tree_width = 30
 local line_length_factor = 0.3
 local soft_wrap = false
+local pre_released_width = 0
 
 -- Get a new object used when adding to scanlist
 local function new_listobj(p, d, o, i)
@@ -97,7 +98,7 @@ local function try_convert_rel(path)
         local relPath, relErr = filepath.Rel(wd, path)
         return relPath
     end
-    
+
     return path
 end
 
@@ -355,11 +356,11 @@ local function refresh_view()
         if i < #scanlist then
             display_content = display_content .. '\n'
         end
-        
+
         if display_content:len() > highest_length then
             highest_length = display_content:len()
         end
-			
+
         -- Insert line-by-line to avoid out-of-bounds on big folders
         -- +2 so we skip the 0/1/2 positions that hold the top dir/separator/..
         tree_view.Buf.EventHandler:Insert(buffer.Loc(0, i + 2), display_content)
@@ -428,7 +429,7 @@ local function compress_target(y, delete_y)
                             -- Add the index to stuff to delete, since it holds nested content
                             delete_under[#delete_under + 1] = i
                         end
-                        
+
                         -- Nothing else to do, so break this inner loop
                         break
                     end
@@ -576,13 +577,13 @@ function open_pane_if_exist(path)
         for j = 1, #micro.Tabs().List[i].Panes do
             local currentPane = micro.Tabs().List[i].Panes[j]
             local currentBuf = currentPane.Buf
-            
+
             -- if currentBuf ~= nil then
             --     micro.Log("cleanFilepath:", cleanFilepath)
             --     micro.Log("currentBuf.AbsPath:", currentBuf.AbsPath)
             --     micro.Log("currentBuf.Path:", currentBuf.Path)
             -- end
-            
+
             if currentBuf ~= nil and currentBuf.AbsPath ~= "" and currentBuf.AbsPath ~= nil then
                 local calculatedAbsPath = filepath.Abs(cleanFilepath)
                 if not filepath.IsAbs(cleanFilepath) and wdErr == nil then
@@ -593,9 +594,9 @@ function open_pane_if_exist(path)
                     end
                 end
                 -- micro.Log("calculatedAbsPath:", calculatedAbsPath)
-                
+
                 if  filepath.Clean(currentBuf.AbsPath) == calculatedAbsPath or
-                    filepath.Clean(currentBuf.AbsPath) == cleanFilepath or 
+                    filepath.Clean(currentBuf.AbsPath) == cleanFilepath or
                     filepath.Clean(currentBuf.Path) == cleanFilepath then
 
                     -- NOTE: SetActive functions has index starting at 0 instead lol
@@ -606,7 +607,7 @@ function open_pane_if_exist(path)
             end
         end
     end
-    
+
     return false
 end
 
@@ -644,7 +645,7 @@ end
 
 function smart_new_tab(path)
     local cleanFilepath = filepath.Clean(path)
-    
+
     -- If current pane is empty, we can open in it
     if not path_exists(last_buf_pane.Buf.AbsPath) or is_path_dir(last_buf_pane.Buf.AbsPath) then
         if #last_buf_pane.Buf:Bytes() == 0 then
@@ -652,12 +653,12 @@ function smart_new_tab(path)
             return
         end
     end
-    
+
     -- Otherwise find if there's any existing panes
     if open_pane_if_exist(cleanFilepath) then
         return
     end
-    
+
     -- If not just open it
     local currentActiveIndex = micro.Tabs():Active()
     last_buf_pane:NewTabCmd({cleanFilepath})
@@ -684,11 +685,11 @@ local function try_open_at_y(y)
             update_current_dir(scanlist[y].abspath)
         else
             local open_path = scanlist[y].abspath
-            
+
             if config.GetGlobalOption('filemanager2.relativepath') then
                 open_path = try_convert_rel(scanlist[y].abspath)
             end
-            
+
             -- If it's a file, then open it
             micro.InfoBar():Message('Filemanager2 opened ', open_path)
             open_path = filepath.Clean(open_path)
@@ -967,13 +968,13 @@ local function try_uncompress_path(path)
     target_path = filepath.Clean(target_path)
     local current = current_dir
     local components = {}
-    
+
     -- Split the path into components
     while target_path ~= current and target_path ~= "/" and target_path ~= "." do
         table.insert(components, 1, get_basename(target_path))
         target_path = filepath.Dir(target_path)
     end
-    
+
     -- For each component, find and uncompress the corresponding directory
     local y = 0
     for i = 1, #components do
@@ -989,7 +990,7 @@ local function try_uncompress_path(path)
             end
         end
     end
-    
+
     -- Move cursor to the final target
     if y > 0 then
         tree_view.Cursor.Loc.Y = y + 2  -- +2 to account for header lines
@@ -1022,18 +1023,18 @@ local function open_tree()
     tree_view.Buf:SetOptionNative('autosave', false)
     -- Don't show the statusline to differentiate the view from normal views
     tree_view.Buf:SetOptionNative('statusformatr', '')
-    tree_view.Buf:SetOptionNative('statusformatl', 'filemanager2')
+    tree_view.Buf:SetOptionNative('statusformatl', '')
     tree_view.Buf:SetOptionNative('scrollbar', false)
 
     -- Fill the scanlist, and then print its contents to tree_view
     update_current_dir(os.Getwd())
-    
+
     config.RegisterCommonOption('filemanager2', 'showcurrent', true)
-    -- Use relative path is possible
+    -- Use relative path if possible
     config.RegisterCommonOption('filemanager2', 'relativepath', true)
     -- Open on new tab?
-    config.RegisterCommonOption('filemanager2', 'newtab', true)
-    
+    config.RegisterCommonOption('filemanager2', 'newtab', false)
+
     if config.GetGlobalOption('filemanager2.showcurrent') then
         -- If there's a valid buffer path, uncompress the tree to reach it
         if path_exists(last_buf_pane.Buf.AbsPath) then
@@ -1069,7 +1070,7 @@ function toggle_tree(bp)
     if tree_view == nil then
         open_tree()
     else
-        -- If the file tree share the same tab, close the tree, 
+        -- If the file tree share the same tab, close the tree,
         -- otherwise just move the tree to current tab
         if bp:Tab() == tree_view:Tab() then
             close_tree()
@@ -1304,11 +1305,22 @@ function onMousePress(view)
         -- Try to open whatever is at the click's y index
         -- Will go into/back dirs based on what's clicked, nothing gets expanded
         local y = tree_view.Cursor.Loc.Y
+        pre_released_width = tree_view:GetView().Width
         try_open_at_y(y)
         -- Don't actually allow the mousepress to trigger, so we avoid highlighting stuff
         return false
     end
 end
+
+-- -- NOTE: Create onMouseDrag Event to refresh onMouseRelease
+-- function onMouseRelease(view)
+-- 	if tree_view:GetView().Width ~= pre_released_width then
+-- 		refresh_view()
+-- 		micro.InfoBar():Message('Refreshed View; Successfully Resized')
+-- 		return false
+-- 	end
+-- 	micro.InfoBar():Message('Never Refreshed View')
+-- end
 
 -- Up
 function preCursorUp(view)
@@ -1579,7 +1591,7 @@ function init()
 	-- On PR/Push/Whatever the mainstream will be, make these default `true`
     config.RegisterCommonOption('filemanager2', 'autoresize', false)
     config.RegisterCommonOption('filemanager2', 'softwrap', false)
-    
+
     -- Use file icon in status bar
     micro.SetStatusInfoFn('filemanager2.FileIcon')
 
@@ -1602,7 +1614,7 @@ function init()
 
 	auto_resize = config.GetGlobalOption('filemanager2.autoresize')
 	soft_wrap = config.GetGlobalOption('filemanager2.softwrap')
-	
+
     -- NOTE: This must be below the syntax load command or coloring won't work
     -- Just auto-open if the option is enabled
     -- This will run when the plugin first loads
