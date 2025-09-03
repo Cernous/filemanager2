@@ -34,6 +34,7 @@ local tree_view = nil
 local last_buf_pane = nil
 -- Keeps track of the current working directory
 local current_dir = os.Getwd()
+
 -- Keep track of current highest visible indent to resize width appropriately
 
 -- Holds a table of paths -- objects from new_listobj() calls
@@ -42,7 +43,6 @@ local scanlist = {}
 local tree_width = 30
 local line_length_factor = 0.3
 local soft_wrap = false
-local pre_released_width = 0
 
 -- Get a new object used when adding to scanlist
 local function new_listobj(p, d, o, i)
@@ -254,11 +254,12 @@ local function get_safe_y(optional_y)
         -- Default to cursor's Y loc if nothing was passed, instead of declaring another y
         optional_y = tree_view.Cursor.Loc.Y
     end
+    y = optional_y
     -- 0/1/2 would be the top "dir, separator, .." so check if it's past
-    if optional_y > 2 then
-        -- -2 to conform to our scanlist, since zero-based Go index & Lua's one-based
-        y = tree_view.Cursor.Loc.Y - 2
-    end
+    -- if optional_y > 0 then
+    --     -- -2 to conform to our scanlist, since zero-based Go index & Lua's one-based
+    --     y = tree_view.Cursor.Loc.Y - 2
+    -- end
     return y
 end
 
@@ -274,14 +275,14 @@ end
 local function select_line(last_y)
     -- Make last_y optional
     if last_y ~= nil then
-        -- Don't let them move past ".." by checking the result first
-        if last_y > 1 then
+    --     -- Don't let them move past ".." by checking the result first
+        if last_y > 0 then
             -- If the last position was valid, move back to it
-            tree_view.Cursor.Loc.Y = last_y
-        end
-    elseif tree_view.Cursor.Loc.Y < 2 then
-        -- Put the cursor on the ".." if it's above it
-        tree_view.Cursor.Loc.Y = 2
+			tree_view.Cursor.Loc.Y = last_y
+    	end
+    -- if tree_view.Cursor.Loc.Y < 0 then
+    --     -- Put the cursor on the ".." if it's above it
+    --     tree_view.Cursor.Loc.Y = 0
     end
 
     -- Puts the cursor back in bounds (if it isn't) for safety
@@ -315,12 +316,13 @@ local function refresh_view()
     -- Insert the top 3 things that are always there
     -- Current dir
     -- NOTE: need to reduce the path size somehow
-    tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 0), convert_home_rel(current_dir) .. '\n')
+    -- tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 0), convert_home_rel(current_dir) .. '\n')
+    tree_view.Buf:SetOptionNative('statusformatl', convert_home_rel(current_dir))
+    tree_view.Buf:SetOptionNative('statusformatr', '')
     -- An ASCII separator
-    tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 1), repeat_str('─', tree_view:GetView().Width) .. '\n')
+    -- tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 1), repeat_str('─', tree_view:GetView().Width) .. '\n')
     -- The ".." and use a newline if there are things in the current dir
-    tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 2), (#scanlist > 0 and '..\n' or '..'))
-
+    tree_view.Buf.EventHandler:Insert(buffer.Loc(0, 0), (#scanlist > 0 and '..\n' or '..'))
     -- Holds the current basename of the path (purely for display)
     local display_content
     local highest_length = 0
@@ -363,7 +365,7 @@ local function refresh_view()
 
         -- Insert line-by-line to avoid out-of-bounds on big folders
         -- +2 so we skip the 0/1/2 positions that hold the top dir/separator/..
-        tree_view.Buf.EventHandler:Insert(buffer.Loc(0, i + 2), display_content)
+        tree_view.Buf.EventHandler:Insert(buffer.Loc(0, i), display_content)
     end
 
     -- Update pane width
@@ -377,8 +379,8 @@ end
 
 -- Moves the cursor to the ".." in tree_view
 local function move_cursor_top()
-    -- 2 is the position of the ".."
-    tree_view.Cursor.Loc.Y = 2
+    -- 0 is the position of the ".."
+    tree_view.Cursor.Loc.Y = 0
 
     -- select the line after moving
     select_line()
@@ -675,11 +677,10 @@ local function try_open_at_y(y)
     local icons = Icons()
 
     -- 2 is the zero-based index of ".."
-    if y == 2 then
+    if y == 0 then
         go_back_dir()
-    elseif y > 2 and not scanlist_is_empty() then
+    elseif y > 0 and not scanlist_is_empty() then
         -- -2 to conform to our scanlist "missing" first 3 indicies
-        y = y - 2
         if scanlist[y].dirmsg == icons['dir'] or scanlist[y].dirmsg == icons['dir_open'] then
             -- if passed path is a directory, update the current dir to be one deeper..
             update_current_dir(scanlist[y].abspath)
@@ -993,7 +994,7 @@ local function try_uncompress_path(path)
 
     -- Move cursor to the final target
     if y > 0 then
-        tree_view.Cursor.Loc.Y = y + 2  -- +2 to account for header lines
+        tree_view.Cursor.Loc.Y = y + 0  -- +2 to account for header lines
         select_line()
     end
 end
@@ -1022,8 +1023,9 @@ local function open_tree()
     -- Is this needed with new non-savable settings from being "vtLog"?
     tree_view.Buf:SetOptionNative('autosave', false)
     -- Don't show the statusline to differentiate the view from normal views
-    tree_view.Buf:SetOptionNative('statusformatr', '')
-    tree_view.Buf:SetOptionNative('statusformatl', '')
+    -- tree_view.Buf:SetOptionNative('statusformatr', '')
+    -- tree_view.Buf:SetOptionNative('statusformatl', '')
+    
     tree_view.Buf:SetOptionNative('scrollbar', false)
 
     -- Fill the scanlist, and then print its contents to tree_view
@@ -1201,10 +1203,10 @@ end
 -- Move the cursor to the top, but don't allow the action
 local function aftermove_if_tree(view)
     if view == tree_view then
-        if tree_view.Cursor.Loc.Y < 2 then
-            -- If it went past the "..", move back onto it
-            tree_view.Cursor:DownN(2 - tree_view.Cursor.Loc.Y)
-        end
+        -- if tree_view.Cursor.Loc.Y < 0 then
+        --     -- If it went past the "..", move back onto it
+        --     tree_view.Cursor:DownN(tree_view.Cursor.Loc.Y)
+        -- end
         select_line()
     end
 end
@@ -1305,28 +1307,17 @@ function onMousePress(view)
         -- Try to open whatever is at the click's y index
         -- Will go into/back dirs based on what's clicked, nothing gets expanded
         local y = tree_view.Cursor.Loc.Y
-        pre_released_width = tree_view:GetView().Width
         try_open_at_y(y)
         -- Don't actually allow the mousepress to trigger, so we avoid highlighting stuff
         return false
     end
 end
 
--- -- NOTE: Create onMouseDrag Event to refresh onMouseRelease
--- function onMouseRelease(view)
--- 	if tree_view:GetView().Width ~= pre_released_width then
--- 		refresh_view()
--- 		micro.InfoBar():Message('Refreshed View; Successfully Resized')
--- 		return false
--- 	end
--- 	micro.InfoBar():Message('Never Refreshed View')
--- end
-
 -- Up
 function preCursorUp(view)
     if view == tree_view then
         -- Disallow selecting past the ".." in the tree
-        if tree_view.Cursor.Loc.Y == 2 then
+        if tree_view.Cursor.Loc.Y == 0 then
             return false
         end
     end
